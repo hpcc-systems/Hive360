@@ -1,0 +1,1750 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Swarm360 Creation Stack",
+  "Metadata": {
+    "AWS::CloudFormation::Interface": {
+      "ParameterGroups": [
+        {
+          "Label": {
+            "default": "General Configuration"
+          },
+          "Parameters": [
+            "AMI",
+            "Password"
+          ]
+        },
+        {
+          "Label": {
+            "default": "Cloud Configuration"
+          },
+          "Parameters": [
+            "ReferenceStackName",
+            "KeyName"
+          ]
+        },
+        {
+          "Label": {
+            "default": "Swarm360 Configuration"
+          },
+          "Parameters": [
+            "QueenSize",
+            "WorkerSize",
+            "DroneSize",
+            "WorkerCount",
+            "DroneCount"
+          ]
+        }
+      ]
+    }
+  },
+  "Parameters": {
+    "ReferenceStackName": {
+      "Description": "Enter the stack name of the Hive360 you want to swarm.",
+      "Type": "String",
+      "AllowedPattern": "^[a-zA-Z][-a-zA-Z0-9]*$",
+      "ConstraintDescription": "must be a valid Hive360 stack"
+    },
+    "KeyName": {
+      "Description": "Choose the keypair you want to associate with the hive",
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription": "must be a valid keypair Id"
+    },
+    "AMI": {
+      "Description": "Enter the AMI Id of the source image",
+      "Type": "AWS::EC2::Image::Id",
+      "ConstraintDescription": "must be a valid AMI id"
+    },
+    "Password": {
+      "Description": "Password for the default ecl-user account",
+      "Type": "String",
+      "MinLength": 8,
+      "NoEcho": "true"
+    },
+    "QueenSize": {
+      "Description": "Choose the size of the queen",
+      "Type": "String",
+      "Default": "m4.large",
+      "AllowedValues": [
+        "m4.large",
+        "m4.xlarge",
+        "m4.2xlarge",
+        "m4.4xlarge",
+        "m4.10xlarge",
+        "m4.16xlarge"
+      ],
+      "ConstraintDescription": "must be one of m4.large, m4.xlarge, m4.2xlarge, m4.4xlarge, m4.10xlarge or m4.16xlarge"
+    },
+    "WorkerSize": {
+      "Description": "Choose the size of worker instances",
+      "Type": "String",
+      "Default": "m4.large",
+      "AllowedValues": [
+        "m4.large",
+        "m4.xlarge",
+        "m4.2xlarge",
+        "m4.4xlarge",
+        "m4.4xlarge",
+        "m4.10xlarge",
+        "m4.16xlarge"
+      ],
+      "ConstraintDescription": "must be one of m4.large, m4.xlarge, m4.2xlarge, m4.4xlarge, m4.10xlarge or m4.16xlarge"
+    },
+    "DroneSize": {
+      "Description": "Choose the size of the drone instances",
+      "Type": "String",
+      "Default": "m4.large",
+      "AllowedValues": [
+        "m4.large",
+        "m4.xlarge",
+        "m4.2xlarge",
+        "m4.4xlarge",
+        "m4.4xlarge",
+        "m4.10xlarge",
+        "m4.16xlarge"
+      ],
+      "ConstraintDescription": "must be one of m4.large, m4.xlarge, m4.2xlarge, m4.4xlarge, m4.10xlarge or m4.16xlarge"
+    },
+    "WorkerCount": {
+      "Description": "Choose the count of workers to create",
+      "Type": "String",
+      "Default": "5",
+      "AllowedValues": [
+        "0",
+        "5",
+        "6",
+        "8",
+        "9",
+        "10",
+        "12",
+        "15",
+        "18",
+        "20",
+        "24",
+        "30",
+        "36",
+        "40",
+        "45",
+        "60",
+        "72",
+        "90",
+        "120",
+        "180",
+        "360"
+      ]
+    },
+    "DroneCount": {
+      "Description": "Minimum number of drones in autoscaling group",
+      "Type": "String",
+      "Default": "2",
+      "AllowedValues": [
+        "0",
+        "2",
+        "4",
+        "6",
+        "8",
+        "10",
+        "12",
+        "18",
+        "20",
+        "24",
+        "30",
+        "36",
+        "40",
+        "60",
+        "72",
+        "90",
+        "120"
+      ]
+    }
+  },
+  "Conditions": {
+    "CreateWorkers": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "WorkerCount"
+            },
+            "0"
+          ]
+        }
+      ]
+    },
+    "CreateDrones": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Ref": "DroneCount"
+            },
+            "0"
+          ]
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "hpcclogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "RetentionInDays": 30
+      }
+    },
+    "hivelogs": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "RetentionInDays": 30
+      }
+    },
+    "LogRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "LogRolePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:Create*",
+                    "logs:PutLogEvents",
+                    "s3:GetObject"
+                  ],
+                  "Resource": [
+                    "arn:aws:logs:*:*:*",
+                    "arn:aws:s3:::*"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "GrafanaPolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:*",
+                    "cloudwatch:*"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "LogRoleInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [
+          {
+            "Ref": "LogRole"
+          }
+        ]
+      }
+    },
+    "QueenSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Security group for Hive Queen",
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "IpProtocol": "tcp",
+            "FromPort": "8010",
+            "ToPort": "8010"
+          },
+          {
+            "CidrIp": "0.0.0.0/0",
+            "IpProtocol": "tcp",
+            "FromPort": "8145",
+            "ToPort": "8145"
+          },
+          {
+            "CidrIp": "0.0.0.0/0",
+            "IpProtocol": "tcp",
+            "FromPort": "8002",
+            "ToPort": "8002"
+          },
+          {
+            "CidrIp": "0.0.0.0/0",
+            "IpProtocol": "tcp",
+            "FromPort": "3000",
+            "ToPort": "3000"
+          }
+        ],
+        "VpcId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ReferenceStackName}:VPC"
+          }
+        }
+      }
+    },
+    "DroneSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Security group for Hive Queen",
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "IpProtocol": "tcp",
+            "FromPort": "9876",
+            "ToPort": "9876"
+          }
+        ],
+        "VpcId": {
+          "Fn::ImportValue": {
+            "Fn::Sub": "${ReferenceStackName}:VPC"
+          }
+        }
+      }
+    },
+    "QueenLaunchConfig": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "KeyName": {
+          "Ref": "KeyName"
+        },
+        "IamInstanceProfile": {
+          "Ref": "LogRoleInstanceProfile"
+        },
+        "ImageId": {
+          "Ref": "AMI"
+        },
+        "SecurityGroups": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:DefaultSecurityGroup"
+            }
+          },
+          {
+            "Ref": "QueenSecurityGroup"
+          }
+        ],
+        "InstanceType": {
+          "Ref": "QueenSize"
+        },
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+              "VolumeSize": "200",
+              "DeleteOnTermination": "true"
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -x\n",
+                "#FIX DNS ISSUES WITH EFS TO AVOID AMAZON BUG\n",
+                "perl -p -i -e 's/PEERDNS=\"yes\"/PEERDNS=\"no\"/g' /etc/sysconfig/network-scripts/ifcfg-eth0\n",
+                "service network restart\n",
+                "DNS=`curl -s http://169.254.169.254/latest/meta-data/network/interfaces/macs/$(ip -o  link show up | awk '!/lo:/ { print $(NF-2); exit}')/vpc-ipv4-cidr-block|awk -F \".\" '{print $1\".\" $2 \".\" $3 \".2\"}'`\n",
+                "echo \"search ec2.internal eu-west-1.compute.internal\" >/etc/resolv.conf\n",
+                "echo \"nameserver ${DNS}\" >>/etc/resolv.conf\n",
+                "#CREATE THE LOGGING FUNCTION\n",
+                "function log {\n",
+                "   while read MSG;do\n",
+                "   DATE=$(date '+%b %-d %H:%M:%S')\n",
+                "   HOST=$(hostname -s)\n",
+                "   PROGRAM=$(basename $BASH_SOURCE)\n",
+                "   echo $DATE $HOST $PROGRAM: $MSG >>/var/log/queen.log\n",
+                "   done\n",
+                "}\n",
+                "#SYSCTL TUNING SETTINGS\n",
+                "echo \"Adding sysctl settings to config file\" | log\n",
+                "#echo vm.min_free_kbytes=262144 >>/etc/sysctl.conf\n",
+                "/sbin/sysctl -p\n",
+                "#INSTALL THE AWS CLOUDWATCH LOGS AGENT\n",
+                "sed -i '/centos/d' /etc/hosts\n",
+                "echo 'Clearing yum cache, makig a new cache and installing httpd-tools'| log\n",
+                "yum clean expire-cache 2>&1 | log\n",
+                "yum makecache fast 2>&1 | log\n",
+                "yum install -y httpd-tools 2>&1 | log\n",
+                "echo 'Installing beekeeper grafana application' | log\n",
+                "yum install -y https://grafanarel.s3.amazonaws.com/builds/grafana-4.0.0-1480439068.x86_64.rpm 2>&1 | log\n",
+                "systemctl daemon-reload 2>&1 | log\n",
+                "systemctl start grafana-server 2>&1 | log\n",
+                "systemctl status grafana-server 2>&1 | log\n",
+                "systemctl enable grafana-server.service 2>&1 | log\n",
+                "echo 'Adding datasource of hive to beekeeper grafana' | log\n",
+                "sleep 5\n",
+                "curl -u admin:admin -H \"Content-Type: application/json\" -X POST -d '{\"name\":\"",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "\",\"type\":\"cloudwatch\",\"access\":\"proxy\",\"isDefault\": true,\"jsonData\":{\"defaultRegion\":\"",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "\",\"assumeRoleArn\":\"",
+                {
+                  "Fn::GetAtt": [
+                    "LogRole",
+                    "Arn"
+                  ]
+                },
+                "\"}}' http://localhost:3000/api/datasources\n",
+                "echo 'Installing the default template in beekeeper grafana'\n",
+                "curl https://raw.githubusercontent.com/hive360/grafana/master/grafana.template --output grafana.template\n",
+                "sed -i 's/%FSID%/",
+                {
+                  "Fn::ImportValue": {
+                    "Fn::Sub": "${ReferenceStackName}:FileSystem"
+                  }
+                },
+                "/g' grafana.template\n",
+                "sed -i 's/%REGION%/",
+                {
+                  "Ref": "AWS::Region"
+                },
+                "/g' grafana.template\n",
+                "sed -i 's/%STACKNAME%/",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "/g' grafana.template\n",
+                "curl -u admin:admin -H \"Content-Type: application/json\" -X POST -d @grafana.template http://localhost:3000/api/dashboards/db\n",
+                "echo 'Installing the cloudwatch logs agent' | log\n",
+                "mkdir -p /etc/awslogs\n",
+                "cat <<\"EOF\" >/etc/awslogs/config\n",
+                "[general]\n",
+                "state_file = /var/awslogs/state/agent-state\n",
+                "\n",
+                "[/var/log/queen.log]\n",
+                "file = /var/log/queen.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hivelogs"
+                },
+                "\n",
+                "log_stream_name = queen-{instance_id}\n",
+                "datetime_format = %b %d %H:%M:%S\n",
+                "\n",
+                "[/var/log/pollinate.log]\n",
+                "file = /var/log/pollinate.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hivelogs"
+                },
+                "\n",
+                "log_stream_name = pollinate-{instance_id}\n",
+                "datetime_format = %b %d %H:%M:%S\n",
+                "\n",
+                "[/var/log/messages]\n",
+                "file = /var/log/messages\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hivelogs"
+                },
+                "\n",
+                "log_stream_name = syslog-{instance_id}\n",
+                "datetime_format = %b %d %H:%M:%S\n",
+                "\n",
+                "[/var/log/HPCCSystems/hpcc-init.log]\n",
+                "file = /var/log/HPCCSystems/hpcc-init.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = hpccinit-{instance_id}\n",
+                "datetime_format = %Y-%m-%dT%H:%M:%S\n",
+                "\n",
+                "[/var/log/HPCCSystems/mydali/server/DaServer.log]\n",
+                "file = /var/log/HPCCSystems/mydali/server/DaServer.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = dali-{instance_id}\n",
+                "datetime_format = %Y-%m-%d %H:%M:%S.%f\n",
+                "\n",
+                "[/var/log/HPCCSystems/mydafilesrv/dafilesrv.log]\n",
+                "file = /var/log/HPCCSystems/mydafilesrv/DAFILESRV*.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = dafilesrv-{instance_id}\n",
+                "datetime_format = %Y-%m-%dT%H:%M:%S\n",
+                "\n",
+                "[/var/log/HPCCSystems/mydfuserver/dfuserver.log]\n",
+                "file = /var/log/HPCCSystems/mydfuserver/dfuserver*.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = dali-{instance_id}\n",
+                "datetime_format = %Y-%m-%d %H:%M:%S.%f\n",
+                "\n",
+                "[/var/log/HPCCSystems/mydali/audit/daliaudit.log]\n",
+                "file = /var/log/HPCCSystems/mydali/audit/DaAudit*.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = daaudit{instance_id}\n",
+                "datetime_format = %Y-%m-%d %H:%M:%S\n",
+                "\n",
+                "[/var/log/HPCCSystems/myeclagent/eclagent.log]\n",
+                "file = /var/log/HPCCSystems/myeclagent/eclagent.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = eclagent-{instance_id}\n",
+                "datetime_format = %Y-%m-%d %H:%M:%S.%f\n",
+                "\n",
+                "[/var/log/HPCCSystems/myeclccserver/eclccserver.log]\n",
+                "file = /var/log/HPCCSystems/myeclccserver/eclccserver.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = eclccserver-{instance_id}\n",
+                "datetime_format = %Y-%m-%d %H:%M:%S.%f\n",
+                "\n",
+                "[/var/log/HPCCSystems/myeclscheduler/eclscheduler.log]\n",
+                "file = /var/log/HPCCSystems/myeclscheduler/eclscheduler.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = eclscheduler-{instance_id}\n",
+                "datetime_format = %Y-%m-%d %H:%M:%S.%f\n",
+                "\n",
+                "[/var/log/HPCCSystems/myesp/esp.log]\n",
+                "file = /var/log/HPCCSystems/myesp/esp.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = esp-{instance_id}\n",
+                "datetime_format = %Y-%m-%d %H:%M:%S.%f\n",
+                "\n",
+                "[/var/log/HPCCSystems/mysasha/saserver.log]\n",
+                "file = /var/log/HPCCSystems/mysasha/saserver.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = sasha-{instance_id}\n",
+                "datetime_format = %Y-%m-%d %H:%M:%S.%f\n",
+                "\n",
+                "[/var/log/HPCCSystems/mythor/thormaster.log]\n",
+                "file = /var/log/HPCCSystems/mythor/thormaster*.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = thormaster-{instance_id}\n",
+                "datetime_format = %Y-%m-%d %H:%M:%S.%f\n",
+                "\n",
+                "EOF\n",
+                "curl https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py -O\n",
+                "chmod +x ./awslogs-agent-setup.py\n",
+                "./awslogs-agent-setup.py -n -r ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                " -c /etc/awslogs/config 2>&1 | log\n",
+                "# SET VARIABLES\n",
+                "EFS_MOUNTPOINT=/mnt/efs\n",
+                "FSID=",
+                {
+                  "Fn::ImportValue": {
+                    "Fn::Sub": "${ReferenceStackName}:FileSystem"
+                  }
+                },
+                "\n",
+                "STACK_ID=",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "\n",
+                "REFSTACK_ID=",
+                {
+                  "Ref": "ReferenceStackName"
+                },
+                "\n",
+                "WORK_DIR=${EFS_MOUNTPOINT}/${STACK_ID}\n",
+                "AZ=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`\n",
+                "NFS_OPTIONS='nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 0'\n",
+                "ISID=`curl -s http://169.254.169.254/latest/meta-data/instance-id`\n",
+                "MST_DIR=master\n",
+                "MY_IP=`/sbin/ip route get 8.8.8.8 | /bin/awk 'NR==1 {print $NF}'`\n",
+                "mkdir -p ${EFS_MOUNTPOINT} && chown hpcc:hpcc ${EFS_MOUNTPOINT}\n",
+                "sleep 1\n",
+                "echo \"${AZ}.${FSID}.efs.${AZ%[a-z]}.amazonaws.com:/ ${EFS_MOUNTPOINT} ${NFS_OPTIONS}\" >> /etc/fstab\n",
+                "echo 'Mounting the EFS share'| log\n",
+                "mount ${EFS_MOUNTPOINT} 2>&1 | log\n",
+                "mkdir -p ${WORK_DIR}\n",
+                "cp -prl ${EFS_MOUNTPOINT}/${REFSTACK_ID}/* ${WORK_DIR}/\n",
+                "rm -f ${WORK_DIR}/workers/*\n",
+                "rm -f ${WORK_DIR}/config/.htpasswd\n",
+                "for DIRECTORY in ${WORK_DIR}/data/dali/queen-${ISID} ${WORK_DIR}/logs/queen-${ISID};do mkdir -p ${DIRECTORY};chown hpcc:hpcc ${DIRECTORY};done\n",
+                "if [ -d ${WORK_DIR}/data/dali/master ];then \n",
+                "# THIS IS A REPLACEMENT QUEEN\n",
+                "echo 'This appears to be a replacement queen, copying old queen data.' |log\n",
+                "cp -pr ${WORK_DIR}/data/dali/master/* ${WORK_DIR}/data/dali/queen-${ISID}/ && ln -f -n -s ${WORK_DIR}/data/dali/queen-${ISID} ${WORK_DIR}/data/dali/master\n",
+                "else\n",
+                "# THIS IS THE FIRST QUEEN IN THE HIVE\n",
+                "echo 'This appears to be the first queen in the hive, starting dali briefly to update environment.'|log\n",
+                "service hpcc-init -c dali start\n",
+                " /opt/HPCCSystems/bin/updtdalienv /etc/HPCCSystems/environment.xml -f\n",
+                "service hpcc-init -c dali stop\n",
+                "sed -i 's/method=\"none\"/method=\"htpasswd\"/' /etc/HPCCSystems/environment.xml\n",
+                "ln -f -s ${WORK_DIR}/data/dali/queen-${ISID} ${WORK_DIR}/data/dali/master\n",
+                "cp -pr /etc/HPCCSystems/* ${WORK_DIR}/config\n",
+                "cp -pr /var/lib/HPCCSystems/queries/* ${WORK_DIR}/queries\n",
+                "cp -pr /var/lib/HPCCSystems/hpcc-data/roxie/* ${WORK_DIR}/data/roxie\n",
+                "cp -pr /var/lib/HPCCSystems/hpcc-data/dali/* ${WORK_DIR}/data/dali/queen-${ISID}\n",
+                "fi\n",
+                "# DO THE FOLLOWING FOR ALL QUEENS\n",
+                "echo 'Removing default configuration and HPCC directories.'|log\n",
+                "rm -fr /etc/HPCCSystems && ln -s ${WORK_DIR}/config /etc/HPCCSystems\n",
+                "rm -fr /var/lib/HPCCSystems/queries && ln -s ${WORK_DIR}/queries  /var/lib/HPCCSystems/queries\n",
+                "rm -fr /var/lib/HPCCSystems/hpcc-data/dali && ln -s ${WORK_DIR}/data/dali/queen-${ISID} /var/lib/HPCCSystems/hpcc-data/dali\n",
+                "rm -fr /var/lib/HPCCSystems/hpcc-data/roxie && ln -s ${WORK_DIR}/data/roxie  /var/lib/HPCCSystems/hpcc-data/roxie\n",
+                "rm -fr /var/lib/HPCCSystems/hpcc-data/thor && ln -s ${WORK_DIR}/data/thor  /var/lib/HPCCSystems/hpcc-data/thor\n",
+                "rm -fr /var/log/HPCCSystems && ln -s ${WORK_DIR}/logs/queen-${ISID} /var/log/HPCCSystems\n",
+                "rm -fr /var/lib/HPCCSystems/hpcc-data/eclagent && ln -s ${WORK_DIR}/data/eclagent  /var/lib/HPCCSystems/hpcc-data/eclagent\n",
+                "rm -fr /var/lib/HPCCSystems/hpcc-mirror/dali && ln -s /dev/null  /var/lib/HPCCSystems/hpcc-mirror/dali\n",
+                "rm -fr /var/lib/HPCCSystems/hpcc-data/sasha && ln -s ${WORK_DIR}/data/sasha  /var/lib/HPCCSystems/hpcc-data/sasha\n",
+                "rm -fr /var/lib/HPCCSystems/mydropzone && ln -s ${WORK_DIR}/data/mydropzone  /var/lib/HPCCSystems/mydropzone\n",
+                "# REMOVE THE ENVIRONMENT CONFIG TO PREVENT RACE CONDITION OF NEW DALI NODE WITH SAME IP\n",
+                "rm -f /etc/HPCCSystems/environment.xml\n",
+                "rm -f ${WORK_DIR}/queen/* && touch ${WORK_DIR}/queen/${MY_IP}\n",
+                "echo 'Setting password for ecl-user account.'|log\n",
+                "htpasswd -b -c /etc/HPCCSystems/.htpasswd ecl-user ",
+                {
+                  "Ref": "Password"
+                },
+                "\n",
+                "echo 'service hpcc-init start' >/etc/rc.local\n",
+                "\n",
+                "echo 'Installing killerbee.sh script into cron'|log\n",
+                "cat << \"EOF\" >/usr/bin/killerbee.sh\n",
+                "#!/bin/bash\n",
+                "/bin/pkill -9 thor\n",
+                "/bin/pkill -9 frunssh\n",
+                "/bin/pkill -9 -u hpcc ssh\n",
+                "for slave in `/opt/HPCCSystems/sbin/configgen -env /etc/HPCCSystems/environment.xml -listall2|grep ThorSlaveProcess|awk -F \",\" '{print $3}'`\n",
+                "do\n",
+                "   sudo -u hpcc ssh -o StrictHostKeyChecking=no ${slave} \"/bin/pkill -9 thor\" 2>/dev/null\n",
+                "done\n",
+                "EOF\n",
+                "chmod 755 /usr/bin/killerbee.sh\n",
+                "echo 'Installing queen.sh script into cron'|log\n",
+                "cat <<\"EOF\" >/usr/sbin/queen.sh\n",
+                "#!/bin/bash -x\n",
+                "#CREATE THE LOGGING FUNCTION\n",
+                "function log {\n",
+                "   while read MSG;do\n",
+                "   DATE=$(date '+%b %d %Y %H:%M:%S')\n",
+                "   HOST=$(hostname -s)\n",
+                "   PROGRAM=$(basename $BASH_SOURCE)\n",
+                "   echo $DATE $HOST $PROGRAM: $MSG >>/var/log/queen.log\n",
+                "   done\n",
+                "}\n",
+                "HIVE_SIZE=360\n",
+                "RESERVEMEM=5120\n",
+                "ALIVE_MIN=1\n",
+                "EPOCH=`date +%s`\n",
+                "TMP_DIR=/tmp\n",
+                "HPCC_CONF=/etc/HPCCSystems/environment.xml\n",
+                "HPCC_SBIN=/opt/HPCCSystems/sbin\n",
+                "STACK_ID=",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "\n",
+                "SWARM_DIR=/mnt/efs/${STACK_ID}\n",
+                "QUEEN_IP=`/sbin/ip route get 8.8.8.8 | awk 'NR==1 {print $NF}'`\n",
+                "WORKER_COUNT=`find ${SWARM_DIR}/workers -cmin -${ALIVE_MIN} -type f -printf \"%f\\n\"| wc -l`\n",
+                "BROOD_COUNT=`find ${SWARM_DIR}/workers -mmin -${ALIVE_MIN} -type f -printf \"%f\\n\"| wc -l`\n",
+                "WORKERS=`find ${SWARM_DIR}/workers -cmin -${ALIVE_MIN} -type f -printf \"%f\\n\"`\n",
+                "[ ${BROOD_COUNT} -gt 0 ] && echo 'Detected hatching broods, waiting 60 seconds until worker hatching stops' |log && exit 0\n",
+                "if [ ${WORKER_COUNT} -eq 0 ];then SPN=0;else SPN=$(( ${HIVE_SIZE} / ${WORKER_COUNT} ));fi\n",
+                "#[ ${WORKER_COUNT} -eq 0 ] && exit 0;\n",
+                "#SPN=$(( ${HIVE_SIZE} / ${WORKER_COUNT} ))\n",
+                "\n",
+                "echo \"Detected ${WORKER_COUNT} workers in the hive.\"|log\n",
+                "case $SPN in\n",
+                "0|1|2|3|4|5|6|8|9|10|12|15|18|20|24|30|36|40|45|60|72)\n",
+                "   WORKER_MEM=`cat /mnt/efs/$STACK_ID/config/worker.mem`\n",
+                "   MEMLIMIT=\"$(( ( $WORKER_MEM - $RESERVEMEM ) / $SPN ))\"\n",
+                "   echo \"Worker count ${WORKER_COUNT} matches proper quorum of ${SPN} slaves per node. Attempting a new enviroment.xml\"|log\n",
+                "   echo \"Determined memory limit of $MEMLIMIT MB from a reserved $RESERVEMEM MB and $WORKER_MEM MB and $SPN slaves per node.\"|log\n",
+                "   mkdir -p ${TMP_DIR}/${EPOCH}\n",
+                "   echo ${QUEEN_IP} >> ${TMP_DIR}/${EPOCH}/iplist\n",
+                "   for IP in ${WORKERS};do echo ${IP} >> ${TMP_DIR}/${EPOCH}/iplist;done\n",
+                "   ${HPCC_SBIN}/envgen -env ${TMP_DIR}/${EPOCH}/environment.xml -ipfile ${TMP_DIR}/${EPOCH}/iplist \\\n",
+                "       -supportnodes 1 -thornodes ${WORKER_COUNT} -slavesPerNode ${SPN} -roxienodes 1 \n",
+                "   sed -i 's/.*<Hardware>.*/<Hardware>\\n\\t<Computer computerType=\"linuxmachine\" domain=\"localdomain\" name=\"localhost\" netAddress=\".\"\\/>/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/.*<RoxieServerProcess.*/<RoxieServerProcess computer=\"localhost\" name=\"localhost\" netAddress=\".\"\\/>/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/slavesPerNode/localThorPortInc=\"20\"\\n               slavesPerNode/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/method=\"none\"/method=\"htpasswd\"/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/logLevel=\"1\"/logLevel=\"2\"/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/logRequests=\"false\"/logRequests=\"true\"/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/logFullQueries=\"false\"/logFullQueries=\"true\"/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/copyResources=\"false\"/copyResources=\"true\"/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/lazyOpen=\"true\"/lazyOpen=\"false\"/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/roxieMulticastEnabled=\"true\"/roxieMulticastEnabled=\"false\"/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/<\\/EclCCServerProcess>/<Option name=\"eclcc-legacyimport\" value=\"1\"\\/>\\n<Option name=\"eclcc-legacywhen\" value=\"1\"\\/>\\n<\\/EclCCServerProcess>/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/replicateOutputs=\"true\"/replicateOutputs=\"false\"/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i 's/recoverFromIncErrors/IdlePeriod=\"30\"\\n                     MinTime=\"60\"\\n                     recoverFromIncErrors/' ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   sed -i \"s/fileCacheLimit/globalMemorySize=\\\"$MEMLIMIT\\\"\\n               masterMemorySize=\\\"2048\\\"\\n               fileCacheLimit/\" ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   # SEE IF ANYTHING CHANGED AND UPDATE THE ENVIRONMENT FILE\n",
+                "   cmp -s ${HPCC_CONF} ${TMP_DIR}/${EPOCH}/environment.xml\n",
+                "   if [ $? -eq 1 -o $? -eq 2 ];then\n",
+                "     echo \"New environment.xml is different than existing, updating and restarting services.\"|log\n",
+                "     /usr/bin/killerbee.sh\n",
+                "     /sbin/service hpcc-init stop 2>&1 | log\n",
+                "     echo 'Copying new environemnt.xml into /etc/HPCCSystems/environment.xml' | log\n",
+                "     cp -p --backup=numbered ${TMP_DIR}/${EPOCH}/environment.xml ${HPCC_CONF} && chown hpcc:hpcc ${HPCC_CONF}\n",
+                "     rm -f /var/lib/HPCCSystems/mythor/uslaves*\n",
+                "     /usr/bin/killerbee.sh\n",
+                "     echo 'Attempting to start all services.' | log\n",
+                "     /sbin/service hpcc-init start 2>&1 | log\n",
+                "   else\n",
+                "     echo 'New environment.xml is the same, nothing to do.'|log\n",
+                "     rm -fr ${TMP_DIR}/${EPOCH}\n",
+                "   fi\n",
+                ";;\n",
+                "*)\n",
+                "   exit 0\n",
+                "esac\n",
+                "# MEDICINE-MAN SCRIPT TO ASSURE THOR IS RUNNING AS EXPECTED\n",
+                "#until /sbin/service hpcc-init -c mythor status\n",
+                "#do\n",
+                "#   logger 'Attempting to recessitate thor from faulty init system....'\n",
+                "#   /usr/bin/killerbee.sh\n",
+                "#   /sbin/service hpcc-init -c mythor start\n",
+                "#   sleep 5\n",
+                "#done\n",
+                "exit 0\n",
+                "EOF\n",
+                "chmod 755 /usr/sbin/queen.sh\n",
+                "/usr/sbin/queen.sh\n",
+                "echo \"* * * * *     /bin/flock -xn /tmp/tmp.queen.lock -c /usr/sbin/queen.sh\" >>/tmp/crontmp && crontab /tmp/crontmp\n",
+                "#CREATING SYNCHRONIZATION SCRIPT\n",
+                "cat <<\"EOF\" >/usr/sbin/pollinate.sh\n",
+                "#!/bin/bash -x\n",
+                "#CREATE THE LOGGING FUNCTION\n",
+                "function log {\n",
+                "   while read MSG;do\n",
+                "   DATE=$(date '+%b %d %Y %H:%M:%S')\n",
+                "   HOST=$(hostname -s)\n",
+                "   PROGRAM=$(basename $BASH_SOURCE)\n",
+                "   echo $DATE $HOST $PROGRAM: $MSG >>/var/log/pollinate.log\n",
+                "   done\n",
+                "}\n",
+                "TIME=`{ time /bin/rsync -r -q --exclude '*.tmp' --ignore-existing --link-dest=/mnt/efs/",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "/data/thor /mnt/efs/",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "/data/thor/* /mnt/efs/",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "/data/roxie/; } |& grep real|awk '{print $2}'`\n",
+                "echo \"Completed hardlink of thordata to roxiedata in $TIME\" | log\n",
+                "EOF\n",
+                "chmod 755 /usr/sbin/pollinate.sh\n",
+                "echo \"* * * * *     /bin/flock -xn /tmp/tmp.pollinate.lock -c /usr/sbin/pollinate.sh\" >>/tmp/crontmp && crontab /tmp/crontmp\n"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    "QueenElb": {
+      "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties": {
+        "Scheme": "internal",
+        "LoadBalancerName": {
+          "Fn::Join": [
+            "",
+            [
+              {
+                "Ref": "AWS::StackName"
+              },
+              "-queen-elb"
+            ]
+          ]
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "QueenSecurityGroup"
+          }
+        ],
+        "Subnets": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetA"
+            }
+          },
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetB"
+            }
+          }
+        ],
+        "Listeners": [
+          {
+            "LoadBalancerPort": "8010",
+            "InstancePort": "8010",
+            "Protocol": "TCP"
+          },
+          {
+            "LoadBalancerPort": "8145",
+            "InstancePort": "8145",
+            "Protocol": "TCP"
+          },
+          {
+            "LoadBalancerPort": "8002",
+            "InstancePort": "8002",
+            "Protocol": "TCP"
+          },
+          {
+            "LoadBalancerPort": "3000",
+            "InstancePort": "3000",
+            "Protocol": "TCP"
+          }
+        ],
+        "HealthCheck": {
+          "Target": "TCP:22",
+          "HealthyThreshold": "2",
+          "UnhealthyThreshold": "2",
+          "Interval": "5",
+          "Timeout": "2"
+        }
+      }
+    },
+    "queen": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "UpdatePolicy": {
+        "AutoScalingRollingUpdate": {
+          "MinInstancesInService": "0",
+          "MaxBatchSize": "1"
+        }
+      },
+      "Properties": {
+        "Tags": [
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "Name",
+            "Value": {
+              "Fn::Join": [
+                "",
+                [
+                  {
+                    "Ref": "AWS::StackName"
+                  },
+                  "-queen"
+                ]
+              ]
+            }
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackName",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackType",
+            "Value": "Hive360"
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackRoot",
+            "Value": {
+              "Ref": "ReferenceStackName"
+            }
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackRole",
+            "Value": "queen"
+          }
+        ],
+        "VPCZoneIdentifier": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetA"
+            }
+          },
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetB"
+            }
+          }
+        ],
+        "LaunchConfigurationName": {
+          "Ref": "QueenLaunchConfig"
+        },
+        "LoadBalancerNames": [
+          {
+            "Ref": "QueenElb"
+          }
+        ],
+        "MinSize": "1",
+        "MaxSize": "1",
+        "HealthCheckGracePeriod": "600",
+        "HealthCheckType": "ELB"
+      },
+      "DependsOn": [
+        "QueenSecurityGroup",
+        "QueenLaunchConfig",
+        "QueenElb"
+      ]
+    },
+    "WorkerLaunchConfig": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "KeyName": {
+          "Ref": "KeyName"
+        },
+        "IamInstanceProfile": {
+          "Ref": "LogRoleInstanceProfile"
+        },
+        "ImageId": {
+          "Ref": "AMI"
+        },
+        "SecurityGroups": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:DefaultSecurityGroup"
+            }
+          }
+        ],
+        "InstanceType": {
+          "Ref": "WorkerSize"
+        },
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+              "VolumeSize": "200",
+              "DeleteOnTermination": "true"
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash \n",
+                "#FIX DNS ISSUES WITH EFS TO AVOID AMAZON BUG\n",
+                "perl -p -i -e 's/PEERDNS=\"yes\"/PEERDNS=\"no\"/g' /etc/sysconfig/network-scripts/ifcfg-eth0\n",
+                "service network restart\n",
+                "DNS=`curl -s http://169.254.169.254/latest/meta-data/network/interfaces/macs/$(ip -o  link show up | awk '!/lo:/ { print $(NF-2); exit}')/vpc-ipv4-cidr-block|awk -F \".\" '{print $1\".\" $2 \".\" $3 \".2\"}'`\n",
+                "echo \"search ec2.internal eu-west-1.compute.internal\" >/etc/resolv.conf\n",
+                "echo \"nameserver ${DNS}\" >>/etc/resolv.conf\n",
+                "#CREATE THE LOGGING FUNCTION\n",
+                "function log {\n",
+                "   while read MSG;do\n",
+                "   DATE=$(date '+%b %-d %H:%M:%S')\n",
+                "   HOST=$(hostname -s)\n",
+                "   PROGRAM=$(basename $BASH_SOURCE)\n",
+                "   echo $DATE $HOST $PROGRAM: $MSG >>/var/log/worker.log\n",
+                "   done\n",
+                "}\n",
+                "sed -i '/centos/d' /etc/hosts\n",
+                "echo 'Clearing yum cache, makig a new cache and installing cloudwatch agent'| log\n",
+                "yum clean expire-cache\n",
+                "yum makecache fast\n",
+                "#INSTALL THE AWS CLOUDWATCH LOGS AGENT\n",
+                "mkdir -p /etc/awslogs\n",
+                "cat <<\"EOF\" >/etc/awslogs/config\n",
+                "[general]\n",
+                "state_file = /var/awslogs/state/agent-state\n",
+                "\n",
+                "[/var/log/worker.log]\n",
+                "file = /var/log/worker.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hivelogs"
+                },
+                "\n",
+                "log_stream_name = worker-{instance_id}\n",
+                "datetime_format = %b %d %Y %H:%M:%S\n",
+                "\n",
+                "[/var/log/messages]\n",
+                "file = /var/log/messages\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hivelogs"
+                },
+                "\n",
+                "log_stream_name = syslog-{instance_id}\n",
+                "datetime_format = %b %d %H:%M:%S\n",
+                "\n",
+                "[/var/log/HPCCSystems/hpcc-init.log]\n",
+                "file = /var/log/HPCCSystems/hpcc-init.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = hpccinit-{instance_id}\n",
+                "datetime_format = %Y-%m-%dT%H:%M:%S\n",
+                "\n",
+                "[/var/log/HPCCSystems/mydafilesrv/dafilesrv.log]\n",
+                "file = /var/log/HPCCSystems/mydafilesrv/DAFILESRV*.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = dafilesrv-{instance_id}\n",
+                "datetime_format = %Y-%m-%dT%H:%M:%S\n",
+                "\n",
+                "[/var/log/HPCCSystems/mythor/thorslave.log]\n",
+                "file = /var/log/HPCCSystems/mythor/thorslave*.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = thorslave-{instance_id}\n",
+                "datetime_format = %Y-%m-%dT%H:%M:%S\n",
+                "\n",
+                "EOF\n",
+                "curl https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py -O\n",
+                "chmod +x ./awslogs-agent-setup.py\n",
+                "./awslogs-agent-setup.py -n -r ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                " -c /etc/awslogs/config 2>&1 | log\n",
+                "echo 'Increasing PID maximum and randomizing the PIDS on this worker to avoid a thor bug' | log\n",
+                "echo 4194304 > /proc/sys/kernel/pid_max\n",
+                "# HACK TO AVOID HAVING PIDS CLOSE TO EACH OTHER TO AVOID A THOR ISSUE\n",
+                "ip route get 8.8.8.8|awk 'NR==1 {print $NF}'|awk -F\\. '{print (($4)+(($3%16))*256)*1024}' >/proc/sys/kernel/ns_last_pid\n",
+                "EFS_MOUNTPOINT=/mnt/efs\n",
+                "FSID=",
+                {
+                  "Fn::ImportValue": {
+                    "Fn::Sub": "${ReferenceStackName}:FileSystem"
+                  }
+                },
+                "\n",
+                "STACK_ID=",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "\n",
+                "WORK_DIR=${EFS_MOUNTPOINT}/${STACK_ID}\n",
+                "AZ=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`\n",
+                "NFS_OPTIONS='nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 0'\n",
+                "ISID=`curl -s http://169.254.169.254/latest/meta-data/instance-id`\n",
+                "MY_IP=`/sbin/ip route get 8.8.8.8 | /bin/awk 'NR==1 {print $NF}'`\n",
+                "MST_DIR=master\n",
+                "MYMEM=`free -m|grep Mem|awk '{print $2}'`\n",
+                "mkdir -p ${EFS_MOUNTPOINT} && chown hpcc:hpcc ${EFS_MOUNTPOINT}\n",
+                "sleep 1\n",
+                "echo \"${AZ}.${FSID}.efs.${AZ%[a-z]}.amazonaws.com:/ ${EFS_MOUNTPOINT} ${NFS_OPTIONS}\" >> /etc/fstab\n",
+                "echo 'Mounting EFS share' | log\n",
+                "mount ${EFS_MOUNTPOINT}\n",
+                "mkdir -p ${WORK_DIR}/logs/${ISID} && chown hpcc:hpcc ${WORK_DIR}/logs/${ISID}\n",
+                "rm -fr /etc/HPCCSystems && ln -s ${WORK_DIR}/config /etc/HPCCSystems\n",
+                "rm -fr /var/lib/HPCCSystems/hpcc-data/thor && ln -s ${WORK_DIR}/data/thor  /var/lib/HPCCSystems/hpcc-data/thor\n",
+                "rm -fr /var/log/HPCCSystems && ln -s ${WORK_DIR}/logs/${ISID} /var/log/HPCCSystems\n",
+                "cat >/etc/profile.d/malloc_arena_max.sh <<-%EOF\n",
+                "export MALLOC_ARENA_MAX=8\n",
+                "%EOF\n",
+                "cat << \"EOF\" >/usr/sbin/worker.sh\n",
+                "#!/bin/bash\n",
+                "function log {\n",
+                "   while read MSG;do\n",
+                "   DATE=$(date '+%b %d %Y %H:%M:%S')\n",
+                "   HOST=$(hostname -s)\n",
+                "   PROGRAM=$(basename $BASH_SOURCE)\n",
+                "   echo $DATE $HOST $PROGRAM: $MSG >>/var/log/worker.log\n",
+                "   done\n",
+                "}\n",
+                "# HACK TO AVOID HAVING PIDS CLOSE TO EACH OTHER TO AVOID A THOR ISSUE\n",
+                "/sbin/ip route get 8.8.8.8|awk 'NR==1 {print $NF}'|awk -F\\. '{print (($4)+(($3%16))*256)*1024}' >/proc/sys/kernel/ns_last_pid\n",
+                "# UPDATE MY IP IN THE WORKER DIRECTORY\n",
+                "MY_IP=`/sbin/ip route get 8.8.8.8 | /bin/awk 'NR==1 {print $NF}'`\n",
+                "STACK_ID=",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "\n",
+                "WORK_DIR=/mnt/efs/$STACK_ID/workers\n",
+                "echo \"Buzzing ${MY_IP} into worker directory to let the queen know we are still alive.\" | log\n",
+                "/bin/touch -a $WORK_DIR/$MY_IP\n",
+                "/bin/sleep 30\n",
+                "/bin/touch -a $WORK_DIR/$MY_IP\n",
+                "EOF\n",
+                "chmod 755 /usr/sbin/worker.sh\n",
+                "until [ -d \"${WORK_DIR}/workers\" ];do echo \"Waiting for worker directory\" | log;sleep 1;done\n",
+                "echo \"Updating memory capacity of this worker to $MYMEM MB into worker.mem configuration file..\" | log \n",
+                "echo \"$MYMEM\" >/mnt/efs/$STACK_ID/config/worker.mem\n",
+                "echo \"Buzzing ${MY_IP} into worker directory to let the queen know we are still alive.\" | log\n",
+                "touch -a ${WORK_DIR}/workers/${MY_IP}\n",
+                "echo \"* * * * *   /usr/sbin/worker.sh\" >>/tmp/crontmp && crontab /tmp/crontmp\n",
+                "echo 'Worker configuration done.'| log\n"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    "WorkerElb": {
+      "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties": {
+        "Scheme": "internal",
+        "LoadBalancerName": {
+          "Fn::Join": [
+            "",
+            [
+              {
+                "Ref": "AWS::StackName"
+              },
+              "-worker-elb"
+            ]
+          ]
+        },
+        "Subnets": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetA"
+            }
+          },
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetB"
+            }
+          }
+        ],
+        "Listeners": [
+          {
+            "LoadBalancerPort": "22",
+            "InstancePort": "22",
+            "Protocol": "TCP"
+          }
+        ],
+        "HealthCheck": {
+          "Target": "TCP:22",
+          "HealthyThreshold": "2",
+          "UnhealthyThreshold": "2",
+          "Interval": "30",
+          "Timeout": "5"
+        }
+      }
+    },
+    "workers": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "UpdatePolicy": {
+        "AutoScalingRollingUpdate": {
+          "MinInstancesInService": "0",
+          "MaxBatchSize": {
+            "Ref": "WorkerCount"
+          }
+        }
+      },
+      "Properties": {
+        "Tags": [
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "Name",
+            "Value": {
+              "Fn::Join": [
+                "",
+                [
+                  {
+                    "Ref": "AWS::StackName"
+                  },
+                  "-worker"
+                ]
+              ]
+            }
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackName",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackType",
+            "Value": "Swarm360"
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackRoot",
+            "Value": {
+              "Ref": "ReferenceStackName"
+            }
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackRole",
+            "Value": "worker"
+          }
+        ],
+        "VPCZoneIdentifier": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetA"
+            }
+          },
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetB"
+            }
+          }
+        ],
+        "LaunchConfigurationName": {
+          "Ref": "WorkerLaunchConfig"
+        },
+        "MinSize": {
+          "Ref": "WorkerCount"
+        },
+        "MaxSize": {
+          "Ref": "WorkerCount"
+        },
+        "LoadBalancerNames": [
+          {
+            "Ref": "WorkerElb"
+          }
+        ],
+        "HealthCheckGracePeriod": "600",
+        "HealthCheckType": "ELB"
+      },
+      "DependsOn": [
+        "WorkerLaunchConfig",
+        "WorkerElb"
+      ]
+    },
+    "DroneLaunchConfig": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "KeyName": {
+          "Ref": "KeyName"
+        },
+        "IamInstanceProfile": {
+          "Ref": "LogRoleInstanceProfile"
+        },
+        "ImageId": {
+          "Ref": "AMI"
+        },
+        "SecurityGroups": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:DefaultSecurityGroup"
+            }
+          },
+          {
+            "Ref": "DroneSecurityGroup"
+          }
+        ],
+        "InstanceType": {
+          "Ref": "DroneSize"
+        },
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/sda1",
+            "Ebs": {
+              "VolumeSize": "200",
+              "DeleteOnTermination": "true"
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -x \n",
+                "#FIX DNS ISSUES WITH EFS TO AVOID AMAZON BUG\n",
+                "perl -p -i -e 's/PEERDNS=\"yes\"/PEERDNS=\"no\"/g' /etc/sysconfig/network-scripts/ifcfg-eth0\n",
+                "service network restart\n",
+                "DNS=`curl -s http://169.254.169.254/latest/meta-data/network/interfaces/macs/$(ip -o  link show up | awk '!/lo:/ { print $(NF-2); exit}')/vpc-ipv4-cidr-block|awk -F \".\" '{print $1\".\" $2 \".\" $3 \".2\"}'`\n",
+                "echo \"search ec2.internal eu-west-1.compute.internal\" >/etc/resolv.conf\n",
+                "echo \"nameserver ${DNS}\" >>/etc/resolv.conf\n",
+                "function log {\n",
+                "   while read MSG;do\n",
+                "   DATE=$(date '+%b %-d %H:%M:%S')\n",
+                "   HOST=$(hostname -s)\n",
+                "   PROGRAM=$(basename $BASH_SOURCE)\n",
+                "   echo $DATE $HOST $PROGRAM: $MSG >>/var/log/drone.log\n",
+                "   done\n",
+                "}\n",
+                "sed -i '/centos/d' /etc/hosts\n",
+                "echo 'Clearing yum cache, makig a new cache and installing cachefilesd'| log\n",
+                "yum clean expire-cache 2>&1 | log\n",
+                "yum makecache fast 2>&1 | log\n",
+                "yum -y install cachefilesd 2>&1 | log\n",
+                "service cachefilesd start 2>&1 | log\n",
+                "echo 'Installing the cloudwatch agent.'| log\n",
+                "#INSTALL THE AWS CLOUDWATCH LOGS AGENT\n",
+                "mkdir -p /etc/awslogs\n",
+                "cat <<\"EOF\" >/etc/awslogs/config\n",
+                "[general]\n",
+                "state_file = /var/awslogs/state/agent-state\n",
+                "\n",
+                "[/var/log/drone.log]\n",
+                "file = /var/log/drone.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hivelogs"
+                },
+                "\n",
+                "log_stream_name = drone-{instance_id}\n",
+                "datetime_format = %b %d %Y %H:%M:%S\n",
+                "\n",
+                "[/var/log/messages]\n",
+                "file = /var/log/messages\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hivelogs"
+                },
+                "\n",
+                "log_stream_name = syslog-{instance_id}\n",
+                "datetime_format = %b %d %H:%M:%S\n",
+                "\n",
+                "[/var/log/HPCCSystems/mydafilesrv/dafilesrv.log]\n",
+                "file = /var/log/HPCCSystems/mydafilesrv/DAFILESRV*.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = dafilesrv-{instance_id}\n",
+                "datetime_format = %Y-%m-%dT%H:%M:%S\n",
+                "\n",
+                "[/var/log/HPCCSystems/myroxie/roxie.log]\n",
+                "file = /var/log/HPCCSystems/myroxie/roxie.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "\n",
+                "log_stream_name = hpccinit-{instance_id}\n",
+                "datetime_format = %Y-%m-%dT%H:%M:%S\n",
+                "\n",
+                "[/var/log/HPCCSystems/myroxie/roxie.log]\n",
+                "file = /var/log/HPCCSystems/myroxie/roxie.log\n",
+                "log_group_name = ",
+                {
+                  "Ref": "hpcclogs"
+                },
+                "\n",
+                "log_stream_name = roxie-{instance_id}\n",
+                "datetime_format = %Y-%m-%d %H:%M:%S.%f\n",
+                "\n",
+                "EOF\n",
+                "curl https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py -O\n",
+                "chmod +x ./awslogs-agent-setup.py\n",
+                "./awslogs-agent-setup.py -n -r ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                " -c /etc/awslogs/config 2>&1 | log\n",
+                "# SET VARIABLES\n",
+                "ALIVE_MIN=1\n",
+                "STACK_ID=",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "\n",
+                "EFS_MOUNTPOINT=/mnt/efs\n",
+                "FSID=",
+                {
+                  "Fn::ImportValue": {
+                    "Fn::Sub": "${ReferenceStackName}:FileSystem"
+                  }
+                },
+                "\n",
+                "STACK_ID=",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "\n",
+                "WORK_DIR=${EFS_MOUNTPOINT}/${STACK_ID}\n",
+                "AZ=`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone`\n",
+                "NFS_OPTIONS='nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,fsc,retrans=2 0 0'\n",
+                "ISID=`curl -s http://169.254.169.254/latest/meta-data/instance-id`\n",
+                "MY_IP=`/sbin/ip route get 8.8.8.8 | /bin/awk 'NR==1 {print $NF}'`\n",
+                "MST_DIR=master\n",
+                "mkdir -p ${EFS_MOUNTPOINT} && chown hpcc:hpcc ${EFS_MOUNTPOINT}\n",
+                "sleep 1\n",
+                "echo \"${AZ}.${FSID}.efs.${AZ%[a-z]}.amazonaws.com:/ ${EFS_MOUNTPOINT} ${NFS_OPTIONS}\" >> /etc/fstab\n",
+                "echo 'Mounting EFS share' | log\n",
+                "mount ${EFS_MOUNTPOINT} 2>&1 | log\n",
+                "mkdir -p ${WORK_DIR}/logs/${ISID} && chown hpcc:hpcc ${WORK_DIR}/logs/${ISID}\n",
+                "rm -fr /etc/HPCCSystems && ln -s ${WORK_DIR}/config /etc/HPCCSystems\n",
+                "rm -fr /var/lib/HPCCSystems/hpcc-data/roxie && ln -s ${WORK_DIR}/data/roxie  /var/lib/HPCCSystems/hpcc-data/roxie\n",
+                "rm -fr /var/lib/HPCCSystems/queries && ln -s ${WORK_DIR}/queries  /var/lib/HPCCSystems/queries\n",
+                "rm -fr /var/log/HPCCSystems && ln -s ${WORK_DIR}/logs/${ISID} /var/log/HPCCSystems\n",
+                "until [ -f \"/etc/HPCCSystems/environment.xml\" ];do echo \"Waiting 30s for environment.xml to show up.\" | log;sleep 30;done\n",
+                "echo 'Environment.xml file detected, starting roxie on this node.'\n",
+                "service hpcc-init start 2>&1 | log\n",
+                "echo 'Starting dafilesrv on this node.'\n",
+                "/opt/HPCCSystems/bin/dafilesrv -L /var/log/HPCCSystems -I mydafilesrv &\n",
+                "echo '/etc/init.d/hpcc-init start' >/etc/rc.local\n",
+                "echo '/opt/HPCCSystems/bin/dafilesrv -L /var/log/HPCCSystems -I mydafilesrv &' >>/etc/rc.local\n",
+                "cat << \"EOF\" >/usr/sbin/drone.sh\n",
+                "#!/bin/bash\n",
+                "function log {\n",
+                "   while read MSG;do\n",
+                "   DATE=$(date '+%b %d %Y %H:%M:%S')\n",
+                "   HOST=$(hostname -s)\n",
+                "   PROGRAM=$(basename $BASH_SOURCE)\n",
+                "   echo $DATE $HOST $PROGRAM: $MSG >>/var/log/drone.log\n",
+                "   done\n",
+                "}\n",
+                "ALIVE_MIN=1\n",
+                "STACK_ID=",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "\n",
+                "EFS_MOUNTPOINT=/mnt/efs\n",
+                "FSID=",
+                {
+                  "Fn::ImportValue": {
+                    "Fn::Sub": "${ReferenceStackName}:FileSystem"
+                  }
+                },
+                "\n",
+                "STACK_ID=",
+                {
+                  "Ref": "AWS::StackName"
+                },
+                "\n",
+                "QUEEN_DIR=/mnt/efs/$STACK_ID/queen\n",
+                "NEW_QUEEN=`find /mnt/efs/${STACK_ID}/queen -cmin -${ALIVE_MIN} -type f -printf \"%f\\n\"| wc -l`\n",
+                "[ ${NEW_QUEEN} -gt 0 ] && echo 'New queen detected, restarting roxie on this node.' | log && /sbin/service hpcc-init restart 2>&1 | log\n",
+                "/etc/init.d/hpcc-init status || ( echo 'Roxie is not running, attempting to restart' | log && /etc/init.d/hpcc-init start 2>&1| log )\n",
+                "EOF\n",
+                "chmod 755 /usr/sbin/drone.sh\n",
+                "echo \"* * * * *   /usr/sbin/drone.sh\" >>/tmp/crontmp && crontab /tmp/crontmp\n"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    "DroneElb": {
+      "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties": {
+        "ConnectionDrainingPolicy": {
+          "Enabled": "true",
+          "Timeout": "30"
+        },
+        "Scheme": "internal",
+        "LoadBalancerName": {
+          "Fn::Join": [
+            "",
+            [
+              {
+                "Ref": "AWS::StackName"
+              },
+              "-drone-elb"
+            ]
+          ]
+        },
+        "SecurityGroups": [
+          {
+            "Ref": "DroneSecurityGroup"
+          }
+        ],
+        "Subnets": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetA"
+            }
+          },
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetB"
+            }
+          }
+        ],
+        "Listeners": [
+          {
+            "LoadBalancerPort": "9876",
+            "InstancePort": "9876",
+            "Protocol": "TCP"
+          }
+        ],
+        "HealthCheck": {
+          "Target": "TCP:9876",
+          "HealthyThreshold": "2",
+          "UnhealthyThreshold": "2",
+          "Interval": "5",
+          "Timeout": "2"
+        }
+      }
+    },
+    "drones": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "UpdatePolicy": {
+        "AutoScalingRollingUpdate": {
+          "MinInstancesInService": "2",
+          "MaxBatchSize": "100"
+        }
+      },
+      "Properties": {
+        "HealthCheckGracePeriod": "600",
+        "Tags": [
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "Name",
+            "Value": {
+              "Fn::Join": [
+                "",
+                [
+                  {
+                    "Ref": "AWS::StackName"
+                  },
+                  "-drone"
+                ]
+              ]
+            }
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackName",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackType",
+            "Value": "Swarm360"
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackRoot",
+            "Value": {
+              "Ref": "ReferenceStackName"
+            }
+          },
+          {
+            "PropagateAtLaunch": "true",
+            "Key": "StackRole",
+            "Value": "drone"
+          }
+        ],
+        "VPCZoneIdentifier": [
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetA"
+            }
+          },
+          {
+            "Fn::ImportValue": {
+              "Fn::Sub": "${ReferenceStackName}:PrivateSubnetB"
+            }
+          }
+        ],
+        "LaunchConfigurationName": {
+          "Ref": "DroneLaunchConfig"
+        },
+        "MinSize": "2",
+        "MaxSize": "100",
+        "LoadBalancerNames": [
+          {
+            "Ref": "DroneElb"
+          }
+        ],
+        "HealthCheckType": "ELB"
+      },
+      "DependsOn": [
+        "DroneLaunchConfig",
+        "DroneElb",
+        "DroneSecurityGroup"
+      ]
+    },
+    "DroneScaleUpPolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": {
+          "Ref": "drones"
+        },
+        "Cooldown": "1",
+        "ScalingAdjustment": "2"
+      }
+    },
+    "DroneCpuHigh": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "EvaluationPeriods": "1",
+        "Statistic": "Average",
+        "Threshold": "50",
+        "AlarmDescription": "Alarm if CPU too high or metric disappears indicating instance is down",
+        "Period": "60",
+        "AlarmActions": [
+          {
+            "Ref": "DroneScaleUpPolicy"
+          }
+        ],
+        "Namespace": "AWS/EC2",
+        "Dimensions": [
+          {
+            "Name": "AutoScalingGroupName",
+            "Value": {
+              "Ref": "drones"
+            }
+          }
+        ],
+        "ComparisonOperator": "GreaterThanThreshold",
+        "MetricName": "CPUUtilization"
+      }
+    },
+    "DroneScaleDownPolicy": {
+      "Type": "AWS::AutoScaling::ScalingPolicy",
+      "Condition": "CreateDrones",
+      "Properties": {
+        "AdjustmentType": "ChangeInCapacity",
+        "AutoScalingGroupName": {
+          "Ref": "drones"
+        },
+        "Cooldown": "60",
+        "ScalingAdjustment": "-1"
+      }
+    },
+    "DroneCpuLow": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Condition": "CreateDrones",
+      "Properties": {
+        "EvaluationPeriods": "1",
+        "Statistic": "Average",
+        "Threshold": "25",
+        "AlarmDescription": "Alarm if CPU too low or metric disappears indicating instance is down",
+        "Period": "60",
+        "AlarmActions": [
+          {
+            "Ref": "DroneScaleDownPolicy"
+          }
+        ],
+        "Namespace": "AWS/EC2",
+        "Dimensions": [
+          {
+            "Name": "AutoScalingGroupName",
+            "Value": {
+              "Ref": "drones"
+            }
+          }
+        ],
+        "ComparisonOperator": "LessThanThreshold",
+        "MetricName": "CPUUtilization"
+      }
+    }
+  },
+  "Outputs": {
+    "ECLWatchURL": {
+      "Description": "The URL for the ECLWatch Page",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "http://",
+            {
+              "Fn::GetAtt": [
+                "QueenElb",
+                "DNSName"
+              ]
+            },
+            ":8010"
+          ]
+        ]
+      }
+    },
+    "BeekeeperGrafanaURL": {
+      "Description": "The URL for the Beekeeper Grafana Page",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "http://",
+            {
+              "Fn::GetAtt": [
+                "QueenElb",
+                "DNSName"
+              ]
+            },
+            ":3000"
+          ]
+        ]
+      }
+    },
+    "RoxieDNS": {
+      "Description": "The roxie DNS name:port",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            {
+              "Fn::GetAtt": [
+                "DroneElb",
+                "DNSName"
+              ]
+            },
+            ":9876"
+          ]
+        ]
+      }
+    }
+  }
+}
